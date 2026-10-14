@@ -17,8 +17,10 @@
 #include "etc/test_vpu_sim.h"
 
 TEST_GROUP(group_vpu_sim);
-TEST_SETUP(group_vpu_sim) {}
-TEST_TEAR_DOWN(group_vpu_sim) {}
+// Tests may change the VPU config; restore it even when a test fails part way through
+static nn_vpu_config_t saved_config;
+TEST_SETUP(group_vpu_sim) { saved_config = NN_VPU_CONFIG; }
+TEST_TEAR_DOWN(group_vpu_sim) { SetNNVPUConfig(saved_config); }
 
 TEST_GROUP_RUNNER(group_vpu_sim) {
   RUN_TEST_CASE(group_vpu_sim, test_basic);
@@ -175,7 +177,6 @@ TEST(group_vpu_sim, test_vlmacc_product_lsb_drops) {
   int16_t WORD_ALIGNED input[VPU_INT16_EPV];
   int16_t WORD_ALIGNED output[VPU_INT16_EPV];
   vpu_t sim = {0};
-  const nn_vpu_config_t saved_config = NN_VPU_CONFIG;
 
   for (unsigned i = 0; i < VPU_INT16_EPV; ++i) {
     coefficients[i] = 1;
@@ -196,7 +197,24 @@ TEST(group_vpu_sim, test_vlmacc_product_lsb_drops) {
   VSTR(&sim, output);
   TEST_ASSERT_EACH_EQUAL_INT16(0, output, VPU_INT16_EPV);
 
-  SetNNVPUConfig(saved_config);
+  // The LSB is dropped from the accumulated result, not from each product
+  VLDR(&sim, input);
+  VLMACC(&sim, input);
+  VSTR(&sim, output);
+  TEST_ASSERT_EACH_EQUAL_INT16(2, output, VPU_INT16_EPV);
+
+  // VLMACCR rounds the whole sum up
+  VCLRDR(&sim);
+  VLMACCR(&sim, input);
+  VSTR(&sim, output);
+  TEST_ASSERT_EQUAL_INT16(VPU_INT16_EPV, output[0]);
+
+  // 8-bit products keep their LSB
+  VSETC(&sim, MODE_S8);
+  VCLRDR(&sim);
+  VLMACC(&sim, input);
+  VSTR(&sim, output);
+  TEST_ASSERT_EQUAL_INT16(1, output[0]);
 }
 
 TEST(group_vpu_sim, test_vlmaccr) {
