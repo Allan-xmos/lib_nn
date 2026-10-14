@@ -167,11 +167,25 @@ void VSTRPV(const xs3_vpu *vpu, void *addr, unsigned mask) {
   }
 }
 
-static int64_t vlmacc_product(int64_t product) {
+/**
+ * VX4 multiplies 16-bit vectors in two halves (VLMACC0/VLMACC1), and the first halves the
+ * partial sum, so VLMACC's accumulated result (not each product) loses its LSB, rounding down.
+ */
+static int64_t vlmacc_s16_result(const int64_t acc) {
   const unsigned drops = NN_VPU_CONFIG.vlmacc_product_lsb_drops;
-  assert(drops < 64);
-  const uint64_t keep_mask = ~((UINT64_C(1) << drops) - 1);
-  return (int64_t)((uint64_t)product & keep_mask);
+  assert(drops < 32);
+  return (acc >> drops) * ((int64_t)1 << drops);
+}
+
+/**
+ * VX4 reduces 16-bit vectors in two halves (VLMACCR0/VLMACCR1), and the first rounds the
+ * partial sum, so VLMACCR's accumulated result is rounded up to a multiple of 2.
+ */
+static int64_t vlmaccr_s16_result(const int64_t acc) {
+  const unsigned drops = NN_VPU_CONFIG.vlmacc_product_lsb_drops;
+  assert(drops < 32);
+  const int64_t step = (int64_t)1 << drops;
+  return ((acc + step - 1) >> drops) * step;
 }
 
 void VLMACC(xs3_vpu *vpu, const void *addr) {
@@ -183,7 +197,7 @@ void VLMACC(xs3_vpu *vpu, const void *addr) {
 
     for (int i = 0; i < VPU_INT8_VLMACC_ELMS; i++) {
       int64_t acc = GetAccumulator(vpu, i);
-      acc += vlmacc_product(((int32_t)vpu->vC.s8[i]) * addr8[i]);
+      acc = acc + (((int32_t)vpu->vC.s8[i]) * addr8[i]);
 
       SetAccumulator(vpu, i, vpu_saturate(acc, 32));
     }
@@ -192,7 +206,7 @@ void VLMACC(xs3_vpu *vpu, const void *addr) {
 
     for (int i = 0; i < VPU_INT16_VLMACC_ELMS; i++) {
       int64_t acc = GetAccumulator(vpu, i);
-      acc += vlmacc_product(((int32_t)vpu->vC.s16[i]) * addr16[i]);
+      acc = vlmacc_s16_result(acc + (((int32_t)vpu->vC.s16[i]) * addr16[i]));
 
       SetAccumulator(vpu, i, vpu_saturate(acc, 32));
     }
@@ -201,7 +215,7 @@ void VLMACC(xs3_vpu *vpu, const void *addr) {
 
     for (int i = 0; i < VPU_INT16_VLMACC_ELMS; i++) {
       int64_t acc = GetAccumulator(vpu, i);
-      acc += vlmacc_product(((int32_t)vpu->vC.s16[i]) * (int16_t)(addr8[2*i]));
+      acc = acc + (((int32_t)vpu->vC.s16[i]) * (int16_t)(addr8[2*i]));
 
       SetAccumulator(vpu, i, vpu_saturate(acc, 32));
     }
@@ -210,7 +224,7 @@ void VLMACC(xs3_vpu *vpu, const void *addr) {
 
     for (int i = 0; i < VPU_INT32_VLMACC_ELMS; i++) {
       int64_t acc = GetAccumulator(vpu, i);
-      acc += vlmacc_product(((int64_t)vpu->vC.s32[i]) * addr32[i]);
+      acc = acc + (((int64_t)vpu->vC.s32[i]) * addr32[i]);
 
       SetAccumulator(vpu, i, vpu_saturate(acc, 40));
     }
@@ -228,7 +242,7 @@ void VLMACCR(xs3_vpu *vpu, const void *addr) {
     int64_t acc = GetAccumulator(vpu, VPU_INT8_ACC_PERIOD - 1);
 
     for (int i = 0; i < VPU_INT8_EPV; i++)
-      acc += vlmacc_product(((int32_t)vpu->vC.s8[i]) * addr8[i]);
+      acc = acc + (((int32_t)vpu->vC.s8[i]) * addr8[i]);
 
     acc = vpu_saturate(acc, 32);
     rotate_accumulators(vpu);
@@ -238,9 +252,9 @@ void VLMACCR(xs3_vpu *vpu, const void *addr) {
     int64_t acc = GetAccumulator(vpu, VPU_INT16_ACC_PERIOD - 1);
 
     for (int i = 0; i < VPU_INT16_EPV; i++)
-      acc += vlmacc_product(((int32_t)vpu->vC.s16[i]) * addr16[i]);
+      acc = acc + (((int32_t)vpu->vC.s16[i]) * addr16[i]);
 
-    acc = vpu_saturate(acc, 32);
+    acc = vpu_saturate(vlmaccr_s16_result(acc), 32);
     rotate_accumulators(vpu);
     SetAccumulator(vpu, 0, acc);
   } else if (vpu->mode == MODE_S16x8) {
@@ -248,7 +262,7 @@ void VLMACCR(xs3_vpu *vpu, const void *addr) {
     int64_t acc = GetAccumulator(vpu, VPU_INT16_ACC_PERIOD - 1);
 
     for (int i = 0; i < VPU_INT16_EPV; i++)
-      acc += vlmacc_product(((int32_t)vpu->vC.s16[i]) * (int16_t)(addr8[2*i]));
+      acc = acc + (((int32_t)vpu->vC.s16[i]) * (int16_t)(addr8[2*i]));
 
     acc = vpu_saturate(acc, 32);
     rotate_accumulators(vpu);
@@ -258,7 +272,7 @@ void VLMACCR(xs3_vpu *vpu, const void *addr) {
     int64_t acc = GetAccumulator(vpu, VPU_INT32_ACC_PERIOD - 1);
 
     for (int i = 0; i < VPU_INT32_EPV; i++)
-      acc += vlmacc_product(((int32_t)vpu->vC.s32[i]) * addr32[i]);
+      acc = acc + (((int32_t)vpu->vC.s32[i]) * addr32[i]);
 
     acc = vpu_saturate(acc, 40);
     rotate_accumulators(vpu);

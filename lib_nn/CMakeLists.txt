@@ -6,7 +6,7 @@ option(BUILD_DDR_FIX "Build XCore binary with DDR fix enabled" OFF)
 set(LIB_NN_VPU_SYMMETRIC_SATURATION "" CACHE STRING
   "Whether the target VPU saturates to a symmetric signed range (0 or 1)")
 set(LIB_NN_VPU_VLMACC_PRODUCT_LSB_DROPS "" CACHE STRING
-  "Number of product LSBs dropped by the target VPU VLMACC operation")
+  "Number of LSBs the target VPU 16-bit VLMACC/VLMACCR result loses")
 set(LIB_NN_VPU_VLMUL_SHIFT_OFFSET "" CACHE STRING
   "Value subtracted from element width to obtain the target VPU VLMUL shift")
 

@@ -43,10 +43,11 @@
 
 /**
  * @def VPU_VLMACC_PRODUCT_LSB_DROPS
- * @brief Number of least-significant product bits discarded by VLMACC.
+ * @brief Number of least-significant bits a 16-bit VLMACC or VLMACCR loses.
  *
- * This capability describes product precision before accumulation and is
- * independent of the instruction-set spelling.
+ * The bits are lost from the accumulated result, not from each product, and
+ * only in 16-bit mode: VLMACC rounds the result down and VLMACCR rounds it up.
+ * This capability is independent of the instruction-set spelling.
  */
 #ifndef VPU_VLMACC_PRODUCT_LSB_DROPS
 #if defined(__XS3A__)
